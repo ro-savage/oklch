@@ -146,14 +146,7 @@
   <h1>OKLCH Explorer</h1>
   <p>
     <code>oklch(L C H / A)</code> — <b>L</b>ightness 0–100%, <b>C</b>hroma 0–0.4 (colourfulness),
-    <b>H</b>ue 0–360°, <b>A</b>lpha 0–1. Click a padlock to link that slider across squares:
-    locked sliders of the same channel move together, keeping their offsets.
-  </p>
-  <p>
-    Each wheel shows every hue and chroma at that square's lightness: the angle is hue and the
-    distance from the centre is chroma (the edge is 0.4). The marker is the square's colour; drag it to change H and C.
-    Outside the dark line are colours no screen can show; they're painted with the stand-in colour the browser
-    substitutes, which is why they still change. Inside the white line fits in sRGB; <span id="p3-note"></span>
+    <b>H</b>ue 0–360°, <b>A</b>lpha 0–1.
   </p>
 </header>
 <main id="rows"></main>
@@ -167,9 +160,9 @@ const CHANNELS = [
 ];
 
 const state = [
-  { l: 70, c: 0.15, h: 30,  a: 1 },
-  { l: 70, c: 0.15, h: 150, a: 0.75 },
-  { l: 70, c: 0.15, h: 270, a: 0.5 },
+  { l: 100, c: 0.4, h: 360, a: 1 },
+  { l: 100, c: 0.4, h: 360, a: 1 },
+  { l: 100, c: 0.4, h: 360, a: 1 },
 ];
 const locks = state.map(() => ({ l: false, c: false, h: false, a: false }));
 
@@ -432,7 +425,8 @@ const els = state.map((s, i) => {
   };
 });
 
-document.getElementById('p3-note').textContent = canvasP3 && screenP3
+const p3Note = document.getElementById('p3-note');
+if (p3Note) p3Note.textContent = canvasP3 && screenP3
   ? 'between it and the dark line is Display P3 only.'
   : 'beyond it is Display P3 only, which your screen can\'t show, so it\'s drawn clipped.';
 
