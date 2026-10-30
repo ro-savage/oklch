@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OKLCH Explorer</title>
+<style>
+  :root {
+    --bg: #ececea;
+    --panel: #ffffff;
+    --ink: #1b1b1b;
+    --muted: #6b6b6b;
+    --line: #d9d9d6;
+    --accent: #2f6df6;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  header { padding: 24px 3vw 4px; }
+  h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header p { margin: 6px 0 0; color: var(--muted); max-width: 90ch; }
+  header code { font-family: var(--mono); color: var(--ink); }
+
+  main { padding: 20px 3vw 48px; display: flex; flex-direction: column; gap: 2vw; }
+
+  .row {
+    display: grid;
+    grid-template-columns: 15vw minmax(0, 1fr) 15vw;
+    gap: 2.5vw;
+    align-items: center;
+  }
+
+  /* Square sits on top of a black circle so transparency is visible */
+  .stage { position: relative; width: 15vw; height: 15vw; }
+  .circle { position: absolute; inset: 8%; border-radius: 50%; background: #000; }
+  .swatch { position: absolute; inset: 0; }
+
+  /* Hue x chroma wheel at this square's lightness */
+  .wheel { position: relative; width: 15vw; height: 15vw; touch-action: none; cursor: crosshair; }
+  .wheel canvas { position: absolute; left: 8.3333%; top: 8.3333%; width: 83.3333%; height: 83.3333%; }
+  .wheel svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .wheel .marker { filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, .8)); }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: grid;
+    gap: 9px;
+  }
+  .panel-head { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+  .panel-head .name { font-weight: 600; white-space: nowrap; }
+  .css {
+    flex: 1;
+    min-width: 0;
+    font: 13px var(--mono);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 5px 8px;
+    background: #fafaf9;
+  }
+  .css.bad { border-color: #d33; }
+  .copy {
+    font: inherit; font-size: 12px;
+    border: 1px solid var(--line); background: #fff; border-radius: 6px;
+    padding: 4px 9px; cursor: pointer;
+  }
+  .copy:hover { border-color: #aaa; }
+  .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+    background: #e3f3e7; color: #1e6b34;
+  }
+  .badge.p3  { background: #fff1d1; color: #7a5200; }
+  .badge.out { background: #fde2e1; color: #9b1c1c; }
+
+  .ctl {
+    display: grid;
+    grid-template-columns: 104px 80px minmax(0, 1fr) 30px;
+    gap: 10px;
+    align-items: center;
+  }
+  .ctl label { color: var(--muted); white-space: nowrap; }
+  .ctl label b { color: var(--ink); font-family: var(--mono); margin-right: 6px; }
+  .ctl input[type=number] {
+    width: 100%;
+    font: 13px var(--mono);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 4px 6px;
+    text-align: right;
+  }
+
+  input[type=range] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 18px;
+    margin: 0;
+    border-radius: 9px;
+    border: 1px solid rgba(0, 0, 0, .15);
+    background: var(--track);
+    cursor: pointer;
+  }
+  .ctl.alpha input[type=range] {
+    background: var(--track), repeating-conic-gradient(#c8c8c8 0 25%, #fff 0 50%) 0 0 / 12px 12px;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 24px;
+    border-radius: 4px;
+    background: #fff;
+    border: 2px solid #1b1b1b;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 8px; height: 20px;
+    border-radius: 4px;
+    background: #fff;
+    border: 2px solid #1b1b1b;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+  }
+
+  .lock {
+    width: 30px; height: 30px;
+    display: grid; place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 0;
+  }
+  .lock:hover { border-color: #aaa; color: var(--ink); }
+  .lock.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .lock svg { width: 16px; height: 16px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>OKLCH Explorer</h1>
+  <p>
+    <code>oklch(L C H / A)</code> — <b>L</b>ightness 0–100%, <b>C</b>hroma 0–0.4 (colourfulness),
+    <b>H</b>ue 0–360°, <b>A</b>lpha 0–1. Click a padlock to link that slider across squares:
+    locked sliders of the same channel move together, keeping their offsets.
+  </p>
+  <p>
+    Each wheel shows every hue and chroma at that square's lightness: the angle is hue and the
+    distance from the centre is chroma (the edge is 0.4). The marker is the square's colour; drag it to change H and C.
+    Outside the dark line are colours no screen can show; they're painted with the stand-in colour the browser
+    substitutes, which is why they still change. Inside the white line fits in sRGB; <span id="p3-note"></span>
+  </p>
+</header>
+<main id="rows"></main>
+
+<script>
+const CHANNELS = [
+  { key: 'l', label: 'Lightness', min: 0, max: 100, step: 0.1,   dp: 1 },
+  { key: 'c', label: 'Chroma',    min: 0, max: 0.4, step: 0.001, dp: 3 },
+  { key: 'h', label: 'Hue',       min: 0, max: 360, step: 0.1,   dp: 1, wrap: true },
+  { key: 'a', label: 'Alpha',     min: 0, max: 1,   step: 0.01,  dp: 2 },
+];
+
+const state = [
+  { l: 70, c: 0.15, h: 30,  a: 1 },
+  { l: 70, c: 0.15, h: 150, a: 0.75 },
+  { l: 70, c: 0.15, h: 270, a: 0.5 },
+];
+const locks = state.map(() => ({ l: false, c: false, h: false, a: false }));
+
+const LOCK_CLOSED = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>';
+const LOCK_OPEN   = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.8-1.3"/></svg>';
+
+const fmt = (v, dp) => String(Number(v.toFixed(dp)));
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function oklch({ l, c, h, a }, alpha = true) {
+  const base = `${fmt(l, 1)}% ${fmt(c, 3)} ${fmt(h, 1)}`;
+  return alpha && a < 1 ? `oklch(${base} / ${fmt(a, 2)})` : `oklch(${base})`;
+}
+
+// --- Gamut check: OKLCH -> OKLab -> linear sRGB (-> linear Display P3) ---
+function toLinearSrgb({ l, c, h }) {
+  const L = l / 100, rad = h * Math.PI / 180;
+  const A = c * Math.cos(rad), B = c * Math.sin(rad);
+  const l_ = L + 0.3963377774 * A + 0.2158037573 * B;
+  const m_ = L - 0.1055613458 * A - 0.0638541728 * B;
+  const s_ = L - 0.0894841775 * A - 1.2914855480 * B;
+  const lc = l_ ** 3, mc = m_ ** 3, sc = s_ ** 3;
+  return [
+     4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc,
+    -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc,
+    -0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc,
+  ];
+}
+function srgbToP3([r, g, b]) {
+  return [
+    0.8224621 * r + 0.1775380 * g,
+    0.0331941 * r + 0.9668058 * g,
+    0.0170827 * r + 0.0723974 * g + 0.9105199 * b,
+  ];
+}
+const inRange = rgb => rgb.every(v => v >= -1e-4 && v <= 1 + 1e-4);
+function gamut(s) {
+  const rgb = toLinearSrgb(s);
+  if (inRange(rgb)) return 'srgb';
+  if (inRange(srgbToP3(rgb))) return 'p3';
+  return 'out';
+}
+
+// --- Track gradients so each slider previews what moving it does ---
+function track(s, key) {
+  const { l, c, h } = s;
+  switch (key) {
+    case 'l': return `linear-gradient(in oklch to right, oklch(0% ${c} ${h}), oklch(100% ${c} ${h}))`;
+    case 'c': return `linear-gradient(in oklch to right, oklch(${l}% 0 ${h}), oklch(${l}% 0.4 ${h}))`;
+    case 'h': {
+      const stops = [];
+      for (let d = 0; d <= 360; d += 30) stops.push(`oklch(${l}% ${c} ${d})`);
+      return `linear-gradient(to right, ${stops.join(', ')})`;
+    }
+    case 'a': return `linear-gradient(to right, oklch(${l}% ${c} ${h} / 0), oklch(${l}% ${c} ${h}))`;
+  }
+}
+
+function setChannel(i, key, value) {
+  const ch = CHANNELS.find(c => c.key === key);
+  value = clamp(value, ch.min, ch.max);
+  const delta = value - state[i][key];
+  state[i][key] = value;
+  if (locks[i][key]) {
+    state.forEach((s, j) => {
+      if (j === i || !locks[j][key]) return;
+      const next = s[key] + delta;
+      s[key] = ch.wrap ? ((next % 360) + 360) % 360 : clamp(next, ch.min, ch.max);
+    });
+  }
+  render();
+}
+
+function parseOklch(str) {
+  const m = str.trim().match(
+    /^oklch\(\s*([\d.]+)(%?)\s+([\d.]+)(%?)\s+([\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+)(%?)\s*)?\)$/i
+  );
+  if (!m) return null;
+  return {
+    l: m[2] ? +m[1] : +m[1] * 100,
+    c: m[4] ? +m[3] / 100 * 0.4 : +m[3],
+    h: +m[5] % 360,
+    a: m[6] === undefined ? 1 : (m[7] ? +m[6] / 100 : +m[6]),
+  };
+}
+
+// --- Colour wheel: a slice of the OKLCH cylinder at one lightness.
+// Angle = hue (0° right, counter-clockwise), distance from centre = chroma (edge = 0.4). ---
+const screenP3 = matchMedia('(color-gamut: p3)').matches;
+let canvasP3 = false;
+
+function wheelContext(canvas) {
+  let ctx;
+  try { ctx = canvas.getContext('2d', { colorSpace: 'display-p3' }); } catch {}
+  ctx ||= canvas.getContext('2d');
+  canvasP3 = ctx.getContextAttributes?.().colorSpace === 'display-p3';
+  return ctx;
+}
+
+const encode = v => 255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055);
+
+function drawWheel(w, L) {
+  const n = w.canvas.width, r = n / 2;
+  const img = canvasP3 ? w.ctx.createImageData(n, n, { colorSpace: 'display-p3' }) : w.ctx.createImageData(n, n);
+  const px = img.data;
+  const cls = new Uint8Array(n * n); // 0 = outside disc, 1 = sRGB, 2 = P3 only, 3 = impossible
+
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const dx = (x + 0.5 - r) / r, dy = (r - y - 0.5) / r;
+      if (dx * dx + dy * dy > 1) continue;
+      const rgb = toLinearSrgb({ l: L, c: Math.hypot(dx, dy) * 0.4, h: Math.atan2(dy, dx) * 180 / Math.PI });
+      const p3 = srgbToP3(rgb);
+      const k = inRange(rgb) ? 1 : inRange(p3) ? 2 : 3;
+      // Out-of-range colours are clipped, giving the stand-in the browser actually shows
+      const i = y * n + x, out = canvasP3 ? p3 : rgb;
+      cls[i] = k;
+      px[i * 4]     = encode(clamp(out[0], 0, 1));
+      px[i * 4 + 1] = encode(clamp(out[1], 0, 1));
+      px[i * 4 + 2] = encode(clamp(out[2], 0, 1));
+      px[i * 4 + 3] = 255;
+    }
+  }
+
+  // Boundary lines: white where sRGB ends, dark where P3 (every real colour) ends
+  const line = Math.max(1, Math.round(devicePixelRatio));
+  const touches = (x, y, test) => {
+    for (let d = 1; d <= line; d++) {
+      if ((x >= d && test(cls[y * n + x - d])) || (x < n - d && test(cls[y * n + x + d])) ||
+          (y >= d && test(cls[(y - d) * n + x])) || (y < n - d && test(cls[(y + d) * n + x]))) return true;
+    }
+    return false;
+  };
+  for (let y = 0; y < n; y++) {
+    for (let x = 0; x < n; x++) {
+      const i = y * n + x;
+      if (cls[i] === 2 && touches(x, y, k => k === 1)) {
+        px.fill(255, i * 4, i * 4 + 4);
+      } else if (cls[i] === 3 && touches(x, y, k => k === 1 || k === 2)) {
+        px.fill(0, i * 4, i * 4 + 3);
+      }
+    }
+  }
+  w.ctx.putImageData(img, 0, 0);
+  w.renderedL = L;
+}
+
+const WHEEL_GUIDES = `
+  <g fill="none" stroke="rgba(128,128,128,.5)" stroke-width="0.008">
+    <circle r="1"/><circle r="0.5"/>
+  </g>
+  <g font-size="0.1" fill="#6b6b6b" text-anchor="middle" dominant-baseline="central"
+     font-family="ui-monospace, Menlo, monospace">
+    <text x="1.11" y="0">0°</text><text x="0" y="-1.1">90°</text>
+    <text x="-1.13" y="0">180°</text><text x="0" y="1.1">270°</text>
+  </g>`;
+
+function wheelPoint(w, e) {
+  const r = w.svg.getBoundingClientRect();
+  return {
+    x: ((e.clientX - r.left) / r.width) * 2.4 - 1.2,
+    y: 1.2 - ((e.clientY - r.top) / r.height) * 2.4,
+  };
+}
+
+// --- Build DOM ---
+const rowsEl = document.getElementById('rows');
+const els = state.map((s, i) => {
+  const row = document.createElement('section');
+  row.className = 'row';
+  row.innerHTML = `
+    <div class="stage"><div class="circle"></div><div class="swatch"></div></div>
+    <div class="panel">
+      <div class="panel-head">
+        <span class="name">Square ${i + 1}</span>
+        <input class="css" spellcheck="false" aria-label="CSS value for square ${i + 1}">
+        <button class="copy" type="button">Copy</button>
+        <span class="badge"></span>
+      </div>
+    </div>
+    <div class="wheel">
+      <canvas></canvas>
+      <svg viewBox="-1.2 -1.2 2.4 2.4">${WHEEL_GUIDES}<g class="marker"></g></svg>
+    </div>`;
+  const panel = row.querySelector('.panel');
+  const ctl = {};
+
+  for (const ch of CHANNELS) {
+    const div = document.createElement('div');
+    div.className = `ctl ${ch.key === 'a' ? 'alpha' : ''}`;
+    div.innerHTML = `
+      <label><b>${ch.key.toUpperCase()}</b>${ch.label}</label>
+      <input type="number" min="${ch.min}" max="${ch.max}" step="${ch.step}" aria-label="${ch.label} value">
+      <input type="range" min="${ch.min}" max="${ch.max}" step="${ch.step}" aria-label="${ch.label} slider">
+      <button class="lock" type="button"></button>`;
+    const num = div.querySelector('input[type=number]');
+    const range = div.querySelector('input[type=range]');
+    const lock = div.querySelector('.lock');
+
+    num.addEventListener('input', () => {
+      if (num.value !== '' && !isNaN(+num.value)) setChannel(i, ch.key, +num.value);
+    });
+    num.addEventListener('blur', render);
+    range.addEventListener('input', () => setChannel(i, ch.key, +range.value));
+    lock.addEventListener('click', () => {
+      locks[i][ch.key] = !locks[i][ch.key];
+      render();
+    });
+
+    ctl[ch.key] = { num, range, lock };
+    panel.appendChild(div);
+  }
+
+  const css = row.querySelector('.css');
+  css.addEventListener('change', () => {
+    const parsed = parseOklch(css.value);
+    css.classList.toggle('bad', !parsed);
+    if (!parsed) return;
+    for (const ch of CHANNELS) state[i][ch.key] = clamp(parsed[ch.key], ch.min, ch.max);
+    render();
+  });
+  css.addEventListener('keydown', e => { if (e.key === 'Enter') css.blur(); });
+
+  const copy = row.querySelector('.copy');
+  copy.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(oklch(state[i]));
+      copy.textContent = 'Copied';
+    } catch {
+      css.select();
+      copy.textContent = 'Select ⌘C';
+    }
+    setTimeout(() => (copy.textContent = 'Copy'), 1200);
+  });
+
+  const wheelEl = row.querySelector('.wheel');
+  const canvas = wheelEl.querySelector('canvas');
+  const wheel = {
+    canvas,
+    ctx: wheelContext(canvas),
+    svg: wheelEl.querySelector('svg'),
+    marker: wheelEl.querySelector('.marker'),
+    renderedL: null,
+  };
+  const drag = e => {
+    const { x, y } = wheelPoint(wheel, e);
+    setChannel(i, 'h', (Math.atan2(y, x) * 180 / Math.PI + 360) % 360);
+    setChannel(i, 'c', Math.min(1, Math.hypot(x, y)) * 0.4);
+  };
+  wheelEl.addEventListener('pointerdown', e => { wheelEl.setPointerCapture(e.pointerId); drag(e); });
+  wheelEl.addEventListener('pointermove', e => { if (wheelEl.hasPointerCapture(e.pointerId)) drag(e); });
+
+  rowsEl.appendChild(row);
+  return {
+    swatch: row.querySelector('.swatch'),
+    css,
+    badge: row.querySelector('.badge'),
+    ctl,
+    wheel,
+  };
+});
+
+document.getElementById('p3-note').textContent = canvasP3 && screenP3
+  ? 'between it and the dark line is Display P3 only.'
+  : 'beyond it is Display P3 only, which your screen can\'t show, so it\'s drawn clipped.';
+
+function sizeWheels() {
+  for (const { wheel } of els) {
+    const n = Math.round(wheel.canvas.getBoundingClientRect().width * devicePixelRatio);
+    if (n && n !== wheel.canvas.width) {
+      wheel.canvas.width = wheel.canvas.height = n;
+      wheel.renderedL = null;
+    }
+  }
+}
+addEventListener('resize', () => { sizeWheels(); render(); });
+
+function renderWheel(w, s) {
+  if (w.renderedL !== s.l) drawWheel(w, s.l);
+  w.canvas.style.opacity = s.a;
+  const r = s.c / 0.4, rad = s.h * Math.PI / 180;
+  const x = (r * Math.cos(rad)).toFixed(4), y = (-r * Math.sin(rad)).toFixed(4);
+  w.marker.innerHTML = `
+    <line x1="0" y1="0" x2="${x}" y2="${y}" stroke="#fff" stroke-width="0.014"/>
+    <circle cx="${x}" cy="${y}" r="0.085" fill="${oklch(s, false)}" stroke="#fff" stroke-width="0.022"/>`;
+}
+
+function render() {
+  state.forEach((s, i) => {
+    const e = els[i];
+    e.swatch.style.background = oklch(s);
+    renderWheel(e.wheel, s);
+    if (document.activeElement !== e.css) {
+      e.css.value = oklch(s);
+      e.css.classList.remove('bad');
+    }
+
+    const g = gamut(s);
+    e.badge.className = `badge ${g === 'srgb' ? '' : g}`;
+    e.badge.textContent = g === 'srgb' ? 'in sRGB' : g === 'p3' ? 'P3 only' : 'out of P3';
+
+    for (const ch of CHANNELS) {
+      const { num, range, lock } = e.ctl[ch.key];
+      if (document.activeElement !== num) num.value = fmt(s[ch.key], ch.dp);
+      range.value = s[ch.key];
+      range.style.setProperty('--track', track(s, ch.key));
+      const on = locks[i][ch.key];
+      lock.classList.toggle('on', on);
+      lock.innerHTML = on ? LOCK_CLOSED : LOCK_OPEN;
+      lock.setAttribute('aria-pressed', on);
+      lock.title = on ? `Unlink ${ch.label}` : `Link ${ch.label} with other locked squares`;
+    }
+  });
+}
+
+sizeWheels();
+render();
+</script>
+</body>
+</html>
